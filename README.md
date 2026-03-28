@@ -1,20 +1,29 @@
--- 4. LÓGICA DE MOVIMENTO (ESTILO INFINITE YIELD - CFRAME)
+-- 4. LÓGICA DE MOVIMENTO (ESTILO IY COM CORREÇÃO DE BUG NO CHÃO)
 local flying = false
 local speed = 50
 local ctrl = {f = 0, b = 0, l = 0, r = 0}
-local lastctrl = {f = 0, b = 0, l = 0, r = 0}
 
 local function cleanup()
     local char = player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
     if hum then 
         hum.PlatformStand = false 
+        -- Força o estado de "Landed" (Pousado) para o jogo entender que você não está mais caindo/voando
+        hum:ChangeState(Enum.HumanoidStateType.Landing)
     end
-    -- Remove forças residuais
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        for _, v in pairs(char.HumanoidRootPart:GetChildren()) do
-            if v:IsA("BodyGyro") or v:IsA("BodyVelocity") then v:Destroy() end
+    
+    if hrp then
+        -- Remove TODAS as forças de movimento criadas pelo script
+        for _, v in pairs(hrp:GetChildren()) do
+            if v:IsA("BodyGyro") or v:IsA("BodyVelocity") or v:IsA("BodyPosition") then 
+                v:Destroy() 
+            end
         end
+        -- Zera a velocidade residual para o personagem não sair "deslizando"
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        hrp.RotVelocity = Vector3.new(0, 0, 0)
     end
 end
 
@@ -34,54 +43,36 @@ function toggleFly()
     local camera = workspace.CurrentCamera
     
     if hrp and hum then
-        hum.PlatformStand = true
-        
-        -- O segredo do IY: Um BodyVelocity zerado para anular a gravidade
-        local bv = Instance.new("BodyVelocity", hrp)
+        -- O segredo do IY: Criar as forças e mantê-las controladas
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "LY_Fly_BV"
         bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
         bv.Velocity = Vector3.new(0, 0, 0)
+        bv.Parent = hrp
         
-        local bg = Instance.new("BodyGyro", hrp)
+        local bg = Instance.new("BodyGyro")
+        bg.Name = "LY_Fly_BG"
         bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
         bg.P = 9e4
         bg.CFrame = hrp.CFrame
+        bg.Parent = hrp
 
         task.spawn(function()
-            repeat
-                RunService.RenderStepped:Wait()
+            while flying and char and char.Parent do
+                local dt = RunService.RenderStepped:Wait()
                 speed = tonumber(SpeedSlider.Text) or 50
-                hum.PlatformStand = true
                 
-                -- Detecção de teclas estilo IY
+                hum.PlatformStand = true -- Mantém o personagem em modo "plataforma" (estático)
+                
                 if ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0 then
                     bv.Velocity = ((camera.CFrame.LookVector * (ctrl.f + ctrl.b)) + ((camera.CFrame * CFrame.new(ctrl.l + ctrl.r, (ctrl.f + ctrl.b) * 0.2, 0).p) - camera.CFrame.p)) * speed
-                    lastctrl = {f = ctrl.f, b = ctrl.b, l = ctrl.l, r = ctrl.r}
-                elseif speed == 0 then
-                    bv.Velocity = Vector3.new(0, 0, 0)
                 else
-                    bv.Velocity = Vector3.new(0, 0.1, 0)
+                    bv.Velocity = Vector3.new(0, 0.1, 0) -- Pequena força para cima para ignorar a gravidade
                 end
                 
                 bg.CFrame = camera.CFrame
-            until not flying
-            cleanup()
+            end
+            cleanup() -- Garante a limpeza se o loop quebrar
         end)
     end
 end
-
--- Atualização de Controles (Necessário para o estilo IY)
-UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.W then ctrl.f = 1
-    elseif input.KeyCode == Enum.KeyCode.S then ctrl.b = -1
-    elseif input.KeyCode == Enum.KeyCode.A then ctrl.l = -1
-    elseif input.KeyCode == Enum.KeyCode.D then ctrl.r = 1
-    elseif input.KeyCode == Enum.KeyCode.F then toggleFly() end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.W then ctrl.f = 0
-    elseif input.KeyCode == Enum.KeyCode.S then ctrl.b = 0
-    elseif input.KeyCode == Enum.KeyCode.A then ctrl.l = 0
-    elseif input.KeyCode == Enum.KeyCode.D then ctrl.r = 0 end
-end)
